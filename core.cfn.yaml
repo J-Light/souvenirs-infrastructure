@@ -73,14 +73,14 @@ Resources:
     Properties:
       DomainName: !If
         - IsProduction
-        - !Sub auth-${AppName}.${DomainName}
-        - !Sub auth-${AppName}-devel.${DomainName}
+        - !Sub auth.${AppName}.${DomainName}
+        - !Sub auth.${AppName}-devel.${DomainName}
       DomainValidationOptions:
         -
           DomainName: !If
             - IsProduction
-            - !Sub auth-${AppName}.${DomainName}
-            - !Sub auth-${AppName}-devel.${DomainName}
+            - !Sub auth.${AppName}.${DomainName}
+            - !Sub auth.${AppName}-devel.${DomainName}
           HostedZoneId: !Ref HostedZoneId
       ValidationMethod: DNS
    
@@ -221,4 +221,108 @@ Resources:
           EvaluateTargetHealth: false
           HostedZoneId: 'Z2FDTNDATAQYW2'
 
-  
+  CognitoSNSRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${AppName}-SNS-${EnvType}
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - cognito-idp.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Policies:
+        - PolicyName: !Sub ${AppName}CognitoSNSPolicy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action: sns:publish
+                Resource: '*'
+
+  UserPool:
+    Type: AWS::Cognito::UserPool
+    DeletionPolicy: Delete
+    Properties:
+      UserPoolName: !Sub ${AppName}-${EnvType}
+      UsernameAttributes:
+        - email
+      UsernameConfiguration:
+        CaseSensitive: false
+      MfaConfiguration: 'ON'
+      EnabledMfas:
+        - SOFTWARE_TOKEN_MFA
+        - SMS_MFA
+      SmsConfiguration:
+        ExternalId: !Sub ${AppName}-${EnvType}-external
+        SnsCallerArn: !GetAtt CognitoSNSRole.Arn
+      Schema:
+        - AttributeDataType: String
+          Name: email
+          Required: false
+      Policies:
+        PasswordPolicy:
+            MinimumLength: 14
+            RequireLowercase: true
+            RequireNumbers: true
+            RequireSymbols: true
+            RequireUppercase: true
+            TemporaryPasswordValidityDays: 7
+      AccountRecoverySetting:
+        RecoveryMechanisms:
+          -
+            Name: verified_email
+            Priority: 1
+      AdminCreateUserConfig:
+        AllowAdminCreateUserOnly: true
+      AutoVerifiedAttributes:
+        - email
+        - phone_number
+      DeviceConfiguration:
+        ChallengeRequiredOnNewDevice: true
+        DeviceOnlyRememberedOnUserPrompt: true
+
+  UserPoolClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      ClientName: !Sub ${AppName}-ClientPool-${EnvType}
+      GenerateSecret: false
+      UserPoolId: !Ref UserPool
+      SupportedIdentityProviders:
+        - COGNITO
+      AllowedOAuthFlowsUserPoolClient: true
+      AllowedOAuthFlows:
+          - code
+          - !If
+            - IsProduction
+            - AWS::NoValue
+            - implicit
+      AllowedOAuthScopes:
+        - email
+        - openid
+        - profile
+      CallbackURLs:
+        - !If
+          - IsProduction
+          - !Sub 'https://${AppName}.${DomainName}/callback'
+          - !Sub 'https://${AppName}-devel.${DomainName}/callback'
+      LogoutURLs:
+        - !If
+          - IsProduction
+          - !Sub 'https://${AppName}.${DomainName}/callback'
+          - !Sub 'https://${AppName}-devel.${DomainName}/callback'
+      PreventUserExistenceErrors: ENABLED
+
+  UserPoolDomain:
+    Type: AWS::Cognito::UserPoolDomain
+    Properties:
+      UserPoolId: !Ref UserPool
+      Domain: !If
+        - IsProduction
+        - !Sub auth.${AppName}.${DomainName}
+        - !Sub auth.${AppName}-devel.${DomainName}
+      CustomDomainConfig:
+        CertificateArn: !Ref AuthCertificate
