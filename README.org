@@ -1,5 +1,5 @@
 * Souvenier
-  Souvenier is an attempt to preserve our precious memories in the from of photographs.
+  Souvenier is an attempt to preserve our precious memories i.e. our photographs.
 
   The objective it to:
     - Have the piece of mind that the system ain't gonna screw you, your *souvenier* in your control
