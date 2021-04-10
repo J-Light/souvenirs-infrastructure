@@ -1,7 +1,7 @@
 AWSTemplateFormatVersion: 2010-09-09
 Transform: AWS::Serverless-2016-10-31
 Description: |
-  Core Services for Souvenirs
+  Core Services for Souvenirs on AWS
 
 Parameters:
   AppName:
@@ -389,13 +389,21 @@ Resources:
       CallbackURLs:
         - !If
           - IsProduction
-          - !Sub 'https://${AppName}.${DomainName}/callback'
-          - !Sub 'https://${AppName}-devel.${DomainName}/callback'
+          - !Sub 'https://${AppName}.${DomainName}/authentication/login-callback'
+          - !Sub 'https://${AppName}-devel.${DomainName}/authentication/login-callback'
+        - !If
+          - IsProduction
+          - AWS::NoValue
+          - 'http://localhost:5000/authentication/login-callback'
       LogoutURLs:
         - !If
           - IsProduction
-          - !Sub 'https://${AppName}.${DomainName}/callback'
-          - !Sub 'https://${AppName}-devel.${DomainName}/callback'
+          - !Sub 'https://${AppName}.${DomainName}/authentication/logout-callback'
+          - !Sub 'https://${AppName}-devel.${DomainName}/authentication/logout-callback'
+        - !If
+          - IsProduction
+          - AWS::NoValue
+          - 'http://localhost:5000/authentication/logout-callback'
       PreventUserExistenceErrors: ENABLED
 
   UserPoolDomain:
