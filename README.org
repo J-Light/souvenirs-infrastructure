@@ -1,0 +1,24 @@
+* Souvenier
+  Souvenier is an attempt to preserve our precious memories in the from of photographs.
+
+  The objective it to:
+    - Have the piece of mind that the system ain't gonna screw you, your *souvenier* in your control
+    - Enable a simple installation on AWS via CloudFormation
+    - Be secure
+    - Store photographs in their original glory
+    - Automatically generate web optimized equivalents for viewing on upload
+    - Create personal and shared family albums
+    - You pay for what you use in your AWS account
+
+* Souvenier Infrastructure
+  This is repo hosts the primary Amazon ClourFormation Template to build the core services. They include:
+
+  1. Certificates
+  2. Storage on S3
+  3. CloudFront to server your app securely
+  4. AWS Cognito User Pool and Identity to enable Authentication and Authorization
+  5. Essential Lambdas needed to make this happen
+  6. IAM Policies
+
+* TODO Installation
+  
