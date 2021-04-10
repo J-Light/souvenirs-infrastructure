@@ -5,7 +5,7 @@ Description: |
 
 Parameters:
   AppName:
-    Description: Name of the App 
+    Description: Name of the App
     Type: String
     Default: souvenirs
   EnvType:
@@ -20,20 +20,21 @@ Parameters:
     Type: String
   HostedZoneId:
     Description: Route53 Domain ID
-    Type: String  
+    Type: String
 
 Conditions:
-  IsProduction: !Equals 
+  IsProduction: !Equals
     - !Ref EnvType
-    - prod 
+    - prod
 
 Resources:
+# ====================================== Storage ================================== #
   StaticWebsiteBucket:
     Type: AWS::S3::Bucket
     Properties:
       BucketName: !Join
         - '-'
-        - 
+        -
           - !Sub ${AppName}
           - static
           - !Sub ${EnvType}
@@ -48,10 +49,24 @@ Resources:
         IgnorePublicAcls: True
         RestrictPublicBuckets: True
       Tags:
-        - 
+        -
           Key: accounting
           Value: !Sub core-${EnvType}
 
+  PhotoBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub ${AppName}-${EnvType}
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: True
+        BlockPublicPolicy: True
+        IgnorePublicAcls: True
+        RestrictPublicBuckets: True
+      Tags:
+        -
+          Key: accounting
+          Value: !Sub core-${EnvType}
+# ======================================= Certs ================================== #
   CoreCertificate:
     Type: AWS::CertificateManager::Certificate
     Properties:
@@ -83,13 +98,14 @@ Resources:
             - !Sub auth.${AppName}-devel.${DomainName}
           HostedZoneId: !Ref HostedZoneId
       ValidationMethod: DNS
-   
+
   CloudFrontOriginAccessIdentity:
     Type: AWS::CloudFront::CloudFrontOriginAccessIdentity
     Properties:
       CloudFrontOriginAccessIdentityConfig:
         Comment: !Sub 'CloudFront OAI for ${AWS::StackName}'
 
+# ====================================== Policies ================================== #
   StaticWebsiteBucketPolicy:
     Type: AWS::S3::BucketPolicy
     Properties:
@@ -100,14 +116,100 @@ Resources:
           - Action:
               - s3:GetObject
             Effect: Allow
-            Resource: !Join 
+            Resource: !Join
               - ''
-              - 
+              -
                 - !GetAtt StaticWebsiteBucket.Arn
                 - '/*'
             Principal:
               CanonicalUser: !GetAtt CloudFrontOriginAccessIdentity.S3CanonicalUserId
 
+  CognitoSNSRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${AppName}-SNS-${EnvType}
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - cognito-idp.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Policies:
+        - PolicyName: !Sub ${AppName}CognitoSNSPolicy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action: sns:publish
+                Resource: '*'
+
+  AllowPhotoBucketAccessPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: !Sub ${AppName}${EnvType}AllowUserPhotoBucketAccess
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          -
+            Effect: Allow
+            Action:
+              - s3:ListBucket
+            Resource:
+              - !GetAtt PhotoBucket.Arn
+            Condition:
+              StringLike:
+                "s3:prefix":
+                  - ${cognito-identity.amazonaws.com:sub}
+                  - family
+          -
+            Effect: Allow
+            Action:
+              - s3:GetObject
+              - s3:PutObject
+              - s3:DeleteObject
+            Resource:
+              - !Join
+                - ''
+                - - !GetAtt PhotoBucket.Arn
+                  - '/{cognito-identity.amazonaws.com:sub}'
+              - !Join
+                - ''
+                - - !GetAtt PhotoBucket.Arn
+                  - '/{cognito-identity.amazonaws.com:sub}/*'
+              - !Join
+                - ''
+                - - !GetAtt PhotoBucket.Arn
+                  - '/family'
+              - !Join
+                - ''
+                - - !GetAtt PhotoBucket.Arn
+                  - '/family/*'
+
+      Roles:
+        - !Ref CognitoAuthorizedRole
+
+  CognitoAuthorizedRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated: cognito-identity.amazonaws.com
+            Action:
+              - sts:AssumeRoleWithWebIdentity
+              - sts:TagSession
+            Condition:
+              StringEquals:
+                "cognito-identity.amazonaws.com:aud": !Ref IdentityPool
+              "ForAnyValue:StringLike":
+                "cognito-identity.amazonaws.com:amr": authenticated
+
+# ================================== Essential Lambdas ============================== #
   LambdaEdgeFunctionRole:
     Type: AWS::IAM::Role
     Properties:
@@ -137,28 +239,29 @@ Resources:
       InlineCode: |
         'use strict';
         exports.handler = (event, context, callback) => {
-            
+
             //Get contents of response
             const response = event.Records[0].cf.response;
             const headers = response.headers;
 
-        //Set new headers 
-        headers['strict-transport-security'] = [{key: 'Strict-Transport-Security', value: 'max-age=63072000; includeSubdomains; preload'}]; 
-        headers['content-security-policy'] = [{key: 'Content-Security-Policy', value: "default-src 'none'; img-src 'self'; script-src 'self'; style-src 'self'; object-src 'none'"}]; 
-        headers['x-content-type-options'] = [{key: 'X-Content-Type-Options', value: 'nosniff'}]; 
-        headers['x-frame-options'] = [{key: 'X-Frame-Options', value: 'DENY'}]; 
-        headers['x-xss-protection'] = [{key: 'X-XSS-Protection', value: '1; mode=block'}]; 
-        headers['referrer-policy'] = [{key: 'Referrer-Policy', value: 'same-origin'}]; 
-            
+        //Set new headers
+        headers['strict-transport-security'] = [{key: 'Strict-Transport-Security', value: 'max-age=63072000; includeSubdomains; preload'}];
+        headers['content-security-policy'] = [{key: 'Content-Security-Policy', value: "default-src 'none'; img-src 'self'; script-src 'self'; style-src 'self'; object-src 'none'"}];
+        headers['x-content-type-options'] = [{key: 'X-Content-Type-Options', value: 'nosniff'}];
+        headers['x-frame-options'] = [{key: 'X-Frame-Options', value: 'DENY'}];
+        headers['x-xss-protection'] = [{key: 'X-XSS-Protection', value: '1; mode=block'}];
+        headers['referrer-policy'] = [{key: 'Referrer-Policy', value: 'same-origin'}];
+
             //Return modified response
             callback(null, response);
         };
   LambdaVersion:
     Type: AWS::Lambda::Version
-    Properties: 
+    Properties:
       FunctionName: !Ref LambdaEdgeFunction
       Description: v1
 
+# ================================== Static Web Services ================================ #
   CloudFrontDistribution:
     Type: AWS::CloudFront::Distribution
     Properties:
@@ -176,7 +279,7 @@ Resources:
           MaxTTL: 31536000
           TargetOriginId: !Sub 'S3-${AWS::StackName}-root'
           LambdaFunctionAssociations:
-            - 
+            -
               EventType: origin-response
               LambdaFunctionARN: !Ref LambdaVersion
           ViewerProtocolPolicy: 'redirect-to-https'
@@ -193,7 +296,6 @@ Resources:
         HttpVersion: 'http2'
         DefaultRootObject: 'index.html'
         IPV6Enabled: true
-        
         Origins:
           - DomainName: !GetAtt StaticWebsiteBucket.DomainName
             Id: !Sub 'S3-${AWS::StackName}-root'
@@ -205,7 +307,8 @@ Resources:
           AcmCertificateArn: !Ref CoreCertificate
           MinimumProtocolVersion: TLSv1.2_2019
           SslSupportMethod: sni-only
-  
+
+# ==================================== DNS ================================ #
   Route53RecordSetGroup:
     Type: AWS::Route53::RecordSetGroup
     Properties:
@@ -221,28 +324,7 @@ Resources:
           EvaluateTargetHealth: false
           HostedZoneId: 'Z2FDTNDATAQYW2'
 
-  CognitoSNSRole:
-    Type: AWS::IAM::Role
-    Properties:
-      RoleName: !Sub ${AppName}-SNS-${EnvType}
-      AssumeRolePolicyDocument:
-        Version: 2012-10-17
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service:
-                - cognito-idp.amazonaws.com
-            Action:
-              - sts:AssumeRole
-      Policies:
-        - PolicyName: !Sub ${AppName}CognitoSNSPolicy
-          PolicyDocument:
-            Version: 2012-10-17
-            Statement:
-              - Effect: Allow
-                Action: sns:publish
-                Resource: '*'
-
+# ============================== Authentication ============================ #
   UserPool:
     Type: AWS::Cognito::UserPool
     DeletionPolicy: Delete
@@ -326,3 +408,20 @@ Resources:
         - !Sub auth.${AppName}-devel.${DomainName}
       CustomDomainConfig:
         CertificateArn: !Ref AuthCertificate
+
+  IdentityPool:
+    Type: AWS::Cognito::IdentityPool
+    Properties:
+      IdentityPoolName: !Sub ${AppName}-${EnvType}-IdentityPool
+      AllowUnauthenticatedIdentities: false
+      CognitoIdentityProviders:
+        -
+          ClientId: !Ref UserPoolClient
+          ProviderName: !GetAtt UserPool.ProviderName
+
+  IdentityPoolRoleAttachment:
+    Type: AWS::Cognito::IdentityPoolRoleAttachment
+    Properties:
+      IdentityPoolId: !Ref IdentityPool
+      Roles:
+        authenticated: !GetAtt CognitoAuthorizedRole.Arn
