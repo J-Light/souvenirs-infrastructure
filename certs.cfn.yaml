@@ -1,0 +1,35 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: |
+  Create required certificates in US-EAST-1
+
+Parameters:
+  FQDomainName:
+    Description: Custom domain for app
+    Type: String
+  FQAuthDomainName:
+    Description: Custom domain for auth
+    Type: String
+  HostedZoneId:
+    Description: Route53 Domain ID
+    Type: String
+
+Resources:
+  CoreCertificate:
+    Type: AWS::CertificateManager::Certificate
+    Properties:
+      DomainName: !Ref FQDomainName
+      DomainValidationOptions:
+        -
+          DomainName: !Ref FQDomainName
+          HostedZoneId: !Ref HostedZoneId
+      ValidationMethod: DNS
+
+  AuthCertificate:
+    Type: AWS::CertificateManager::Certificate
+    Properties:
+      DomainName: !Ref FQAuthDomainName
+      DomainValidationOptions:
+        -
+          DomainName: !Ref FQAuthDomainName
+          HostedZoneId: !Ref HostedZoneId
+      ValidationMethod: DNS
